@@ -127,16 +127,12 @@ function filterReq2(normSheet1, vniMap) {
     matching.forEach(stock => {
         stock.cond1 = stock.volume > 300000;
 
-        const rsAvgIn = stock.rs_avg > 75 && stock.rs_avg < 90;
-        const rsDaysIn = stock.rs1 > 75 && stock.rs1 < 90 &&
-                          stock.rs2 > 75 && stock.rs2 < 90 &&
-                          stock.rs3 > 75 && stock.rs3 < 90;
-        stock.cond2 = rsAvgIn && rsDaysIn;
+        // Đồng bộ với công thức Excel: Chỉ số RS_avg nằm trong khoảng [75, 90]
+        stock.cond2 = stock.rs_avg >= 75 && stock.rs_avg <= 90;
 
+        // Đồng bộ với công thức Excel: ROC26 > VNINDEX
         const mapped = vniMap[stock.ticker];
-        const rocGreaterVni = mapped ? mapped.rocGreaterVni : (stock.roc26 > 0);
-        const rocIn = stock.roc26 >= 10 && stock.roc26 <= 20;
-        stock.cond3 = rocGreaterVni && rocIn;
+        stock.cond3 = mapped ? mapped.rocGreaterVni : (stock.roc26 > 0);
 
         stock.cond4 = stock.close > stock.ma20;
         stock.cond5 = stock.ma20 > stock.ma50;
@@ -145,7 +141,7 @@ function filterReq2(normSheet1, vniMap) {
         stock.sScore = [stock.cond1, stock.cond2, stock.cond3, stock.cond4, stock.cond5, stock.cond6].filter(Boolean).length;
     });
 
-    // Chỉ lấy những cổ phiếu thỏa mãn từ 4 tiêu chí trở lên
+    // Chỉ lấy những cổ phiếu thỏa mãn từ 4 tiêu chí trở lên (S-Score >= 4/6)
     let filteredMatching = matching.filter(stock => stock.sScore >= 4);
 
     filteredMatching.sort((a, b) => {
