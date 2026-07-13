@@ -116,11 +116,9 @@ function filterReq1(normSheet1, vniMap) {
 function filterReq2(normSheet1, vniMap) {
     let valid = normSheet1.filter(s => s.ticker !== "VNINDEX" && s.ticker !== "HNXINDEX");
 
+    // Chỉ lọc bắt buộc theo thanh khoản (Volume > 300,000)
     let matching = valid.filter(stock => {
         if (stock.volume <= 300000) return false;
-        if (stock.close <= stock.high_tb4d) return false;
-        if (stock.vol_tb10d <= 0 || (stock.volume / stock.vol_tb10d) <= 1.5) return false;
-
         return true;
     });
 
@@ -140,6 +138,11 @@ function filterReq2(normSheet1, vniMap) {
         stock.cond6 = stock.ma50_tb5d > 0;
 
         stock.sScore = [stock.cond1, stock.cond2, stock.cond3, stock.cond4, stock.cond5, stock.cond6].filter(Boolean).length;
+
+        // Điểm mua kích hoạt (Buy Action Trigger): Thỏa mãn đồng thời Close > High-TB4D và Volume > 150% Vol-TB10D
+        const buySignal = stock.close > stock.high_tb4d;
+        const volBreakout = stock.vol_tb10d > 0 && (stock.volume / stock.vol_tb10d) > 1.5;
+        stock.isBuyActivated = buySignal && volBreakout;
     });
 
     // Chỉ lấy những cổ phiếu thỏa mãn từ 4 tiêu chí trở lên (S-Score >= 4/6)
@@ -337,13 +340,18 @@ function renderReq2(data) {
     const tbody = document.getElementById('tbody-req2');
     tbody.innerHTML = '';
     if (data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="text-center py-8 text-gray-500">Không có cổ phiếu thỏa mãn tiêu chí (>= 4/6)</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="text-center py-8 text-gray-500">Không có cổ phiếu thỏa mãn tiêu chí (>= 4/6)</td></tr>';
         return;
     }
 
     data.forEach((item, idx) => {
         // Tránh tooltip bị che khuất ở đầu hoặc cuối bảng bằng cách đổi vị trí top-0 / bottom-0 sang trái (right-full)
         const tooltipPos = idx < 2 ? 'top-0 right-full mr-2' : 'bottom-0 right-full mr-2';
+
+        // Tạo nhãn trạng thái kích hoạt Điểm mua (Close > High-TB4D và Volume > 1.5 * Vol-TB10D)
+        const statusBadge = item.isBuyActivated
+            ? `<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-500/10 text-green-400 border border-green-500/30 shadow-[0_0_8px_rgba(34,197,94,0.2)]">MUA CHUẨN</span>`
+            : `<span class="px-2 py-0.5 rounded text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700/60">Theo dõi</span>`;
 
         tbody.innerHTML += `
             <tr class="hover:bg-slate-800/50 transition-colors border-b border-slate-700/50">
@@ -391,6 +399,7 @@ function renderReq2(data) {
                         </div>
                     </div>
                 </td>
+                <td class="py-3 px-4 text-center">${statusBadge}</td>
             </tr>
         `;
     });
