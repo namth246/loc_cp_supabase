@@ -120,6 +120,7 @@ function filterReq2(normSheet1, vniMap) {
         if (stock.volume <= 300000) return false;
         if (stock.close <= stock.high_tb4d) return false;
         if (stock.vol_tb10d <= 0 || (stock.volume / stock.vol_tb10d) <= 1.5) return false;
+        if (stock.roc26 < 10 || stock.roc26 > 20) return false;
 
         return true;
     });
