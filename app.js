@@ -120,7 +120,6 @@ function filterReq2(normSheet1, vniMap) {
         if (stock.volume <= 300000) return false;
         if (stock.close <= stock.high_tb4d) return false;
         if (stock.vol_tb10d <= 0 || (stock.volume / stock.vol_tb10d) <= 1.5) return false;
-        if (stock.roc26 < 10 || stock.roc26 > 20) return false;
 
         return true;
     });
@@ -131,9 +130,10 @@ function filterReq2(normSheet1, vniMap) {
         // Đồng bộ với công thức Excel: Chỉ số RS_avg nằm trong khoảng [75, 90]
         stock.cond2 = stock.rs_avg >= 75 && stock.rs_avg <= 90;
 
-        // Đồng bộ với công thức Excel: ROC26 > VNINDEX
+        // ROC26 > VNINDEX và nằm trong khoảng [10%, 20%]
         const mapped = vniMap[stock.ticker];
-        stock.cond3 = mapped ? mapped.rocGreaterVni : (stock.roc26 > 0);
+        const rocGreaterVni = mapped ? mapped.rocGreaterVni : (stock.roc26 > 0);
+        stock.cond3 = rocGreaterVni && (stock.roc26 >= 10 && stock.roc26 <= 20);
 
         stock.cond4 = stock.close > stock.ma20;
         stock.cond5 = stock.ma20 > stock.ma50;
