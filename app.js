@@ -127,10 +127,10 @@ function filterReq2(normSheet1, vniMap) {
     matching.forEach(stock => {
         stock.cond1 = stock.volume > 300000;
 
-        const rsAvgIn = stock.rs_avg >= 75 && stock.rs_avg <= 90;
-        const rsDaysIn = stock.rs1 >= 75 && stock.rs1 <= 90 &&
-                          stock.rs2 >= 75 && stock.rs2 <= 90 &&
-                          stock.rs3 >= 75 && stock.rs3 <= 90;
+        const rsAvgIn = stock.rs_avg > 75 && stock.rs_avg < 90;
+        const rsDaysIn = stock.rs1 > 75 && stock.rs1 < 90 &&
+                          stock.rs2 > 75 && stock.rs2 < 90 &&
+                          stock.rs3 > 75 && stock.rs3 < 90;
         stock.cond2 = rsAvgIn && rsDaysIn;
 
         const mapped = vniMap[stock.ticker];
@@ -345,6 +345,9 @@ function renderReq2(data) {
     }
 
     data.forEach((item, idx) => {
+        // Tránh tooltip bị che khuất ở đầu hoặc cuối bảng bằng cách đổi vị trí top-0 / bottom-0 sang trái (right-full)
+        const tooltipPos = idx < 2 ? 'top-0 right-full mr-2' : 'bottom-0 right-full mr-2';
+
         tbody.innerHTML += `
             <tr class="hover:bg-slate-800/50 transition-colors border-b border-slate-700/50">
                 <td class="py-3 px-4 text-center font-mono text-slate-400">${idx + 1}</td>
@@ -359,7 +362,7 @@ function renderReq2(data) {
                 <td class="py-3 px-4 text-right font-mono font-bold text-yellow-400 relative">
                     <div class="relative group inline-block cursor-help select-none">
                         <span class="border-b border-dashed border-yellow-500/50">${item.sScore}/6</span>
-                        <div class="absolute bottom-full right-0 mb-2 hidden group-hover:block bg-slate-900 border border-slate-700/85 text-xs text-slate-300 rounded-lg p-3 w-60 shadow-2xl z-50 font-sans text-left space-y-1 backdrop-blur-md">
+                        <div class="absolute ${tooltipPos} hidden group-hover:block bg-slate-900 border border-slate-700/85 text-xs text-slate-300 rounded-lg p-3 w-60 shadow-2xl z-50 font-sans text-left space-y-1 backdrop-blur-md">
                             <div class="font-bold text-white mb-1.5 border-b border-slate-800 pb-1 flex items-center justify-between">
                                 <span>Tiêu chí kỹ thuật</span>
                                 <span class="text-yellow-400">${item.sScore}/6</span>
