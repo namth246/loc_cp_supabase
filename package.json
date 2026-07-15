@@ -2,6 +2,9 @@
   "name": "loc_cp_cnf",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "test": "node --test",
     "test:logic": "node --test tests/screener.logic.test.js",
