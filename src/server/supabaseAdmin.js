@@ -29,7 +29,7 @@ export function getServerConfig(env = process.env) {
 
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error(
-      "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY (SUPABASE_KEY fallback is also supported)."
+      "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY (SUPABASE_KEY fallback is also supported). Add them in Vercel Project Settings -> Environment Variables, then redeploy."
     );
   }
 
