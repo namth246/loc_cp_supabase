@@ -79,7 +79,3 @@ tbody tr:hover::after {
 #tbody-req2 tr:hover::after {
     box-shadow: inset 2px 0 0 #eab308; /* yellow-500 */
 }
-
-#tbody-req3 tr:hover::after {
-    box-shadow: inset 2px 0 0 #3b82f6; /* blue-500 */
-}

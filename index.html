@@ -5,13 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>STRIKER-10 Pro Terminal</title>
     <link rel="stylesheet" href="style.css">
-    <!-- TailwindCSS for base utilities but mostly using style.css for custom design -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="bg-slate-950 text-slate-200 h-screen overflow-hidden font-sans selection:bg-emerald-500/30">
 
-    <!-- Global Loader -->
     <div id="global-loader" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center hidden">
         <div class="relative w-24 h-24">
             <div class="absolute inset-0 border-4 border-slate-700 rounded-full"></div>
@@ -21,10 +19,7 @@
         <div class="mt-4 text-emerald-400 font-mono text-sm tracking-widest animate-pulse">CONNECTING TO MARKET DATA...</div>
     </div>
 
-    <!-- Main App Container -->
     <div class="flex h-full w-full">
-        
-        <!-- Sidebar -->
         <aside class="w-64 border-r border-slate-800/50 bg-slate-900/50 backdrop-blur-md flex flex-col relative z-20 shadow-2xl shadow-emerald-900/10">
             <div class="p-6 border-b border-slate-800/50 flex items-center gap-3">
                 <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
@@ -39,51 +34,53 @@
             <nav class="flex-1 p-4 flex flex-col gap-2">
                 <button class="tab-btn active w-full flex items-center gap-3 px-4 py-3 rounded-lg text-emerald-400 border border-emerald-500 bg-emerald-500/10 transition-all text-sm font-medium" data-tab="req1">
                     <i data-lucide="trending-up" class="w-5 h-5"></i>
-                    <span>Top 10 CP Mạnh Nhất</span>
+                    <span>Top 10 CP Manh Nhat</span>
                 </button>
                 <button class="tab-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 border border-transparent hover:bg-slate-800/50 transition-all text-sm font-medium" data-tab="req2">
                     <i data-lucide="zap" class="w-5 h-5"></i>
-                    <span>Top 10 CP Tiềm Năng</span>
-                </button>
-                <button class="tab-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 border border-transparent hover:bg-slate-800/50 transition-all text-sm font-medium" data-tab="req3">
-                    <i data-lucide="pie-chart" class="w-5 h-5"></i>
-                    <span>Sức Mạnh Nhóm Ngành</span>
+                    <span>Top 10 CP Tiem Nang</span>
                 </button>
             </nav>
 
             <div class="p-4 border-t border-slate-800/50">
                 <button id="btn-open-config" class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors text-sm font-medium border border-slate-700">
                     <i data-lucide="settings" class="w-4 h-4"></i>
-                    <span>Cấu hình Dữ liệu</span>
+                    <span>Thong Tin Du Lieu</span>
                 </button>
             </div>
         </aside>
 
-        <!-- Main Content -->
         <main class="flex-1 flex flex-col relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900">
-            <!-- Header -->
             <header class="h-16 border-b border-slate-800/50 bg-slate-900/30 backdrop-blur flex items-center justify-between px-8 relative z-10">
                 <div class="flex items-center gap-6">
                     <div class="flex flex-col">
                         <span class="text-xs text-slate-500 font-mono">MARKET STATUS</span>
-                        <div id="sync-status" class="text-sm font-medium text-slate-300">
-                            <!-- Injected by JS -->
-                        </div>
+                        <div id="sync-status" class="text-sm font-medium text-slate-300"></div>
                     </div>
                 </div>
             </header>
 
-            <!-- Workspace Area -->
             <div class="flex-1 p-8 overflow-auto custom-scrollbar relative z-10">
-                
-                <!-- Panel Req 1 -->
+                <div id="warning-banner" class="hidden mb-6 rounded-xl border border-amber-500/20 bg-amber-500/5 p-5 shadow-lg shadow-amber-950/20">
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center border border-amber-500/20">
+                            <i data-lucide="triangle-alert" class="w-5 h-5 text-amber-300"></i>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="text-sm font-bold text-amber-100 tracking-wide">Canh Bao Du Lieu</h3>
+                            <p class="text-xs text-amber-200/70 mt-1">He thong dang doc snapshot moi nhat theo tung ma tu Supabase va co the loai bo cac ma qua cu.</p>
+                            <div id="warning-list" class="mt-4 space-y-2"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <div id="panel-req1" class="tab-panel flex flex-col h-full animate-fade-in">
                     <div class="mb-6 flex justify-between items-end">
                         <div>
                             <h2 class="text-2xl font-bold text-white mb-2 flex items-center gap-2">
-                                <i data-lucide="trending-up" class="text-emerald-500"></i> Top 10 Cổ Phiếu Mạnh Nhất
+                                <i data-lucide="trending-up" class="text-emerald-500"></i> Top 10 Co Phieu Manh Nhat
                             </h2>
-                            <p class="text-slate-400 text-sm">Lọc cổ phiếu mạnh nhất theo RS ranking, Volume > 300K và ROC 26 > VNINDEX</p>
+                            <p class="text-slate-400 text-sm">Loc co phieu manh nhat theo RS ranking, Volume &gt; 300K va ROC26 vuot benchmark VNINDEX cung ngay.</p>
                         </div>
                     </div>
 
@@ -93,31 +90,28 @@
                                 <thead class="bg-slate-800/80 backdrop-blur sticky top-0 z-10 text-xs font-mono tracking-wider text-slate-400 uppercase">
                                     <tr>
                                         <th class="py-4 px-4 text-center w-16">#</th>
-                                        <th class="py-4 px-4 w-32">Mã CP</th>
+                                        <th class="py-4 px-4 w-32">Ma CP</th>
                                         <th class="py-4 px-4 text-right">26D Change</th>
                                         <th class="py-4 px-4 text-right">Close</th>
                                         <th class="py-4 px-4 text-right">Volume</th>
                                         <th id="req1-date3" class="py-4 px-4 text-right text-slate-500">D3 RS</th>
                                         <th id="req1-date2" class="py-4 px-4 text-right text-slate-500">D2 RS</th>
-                                        <th id="req1-date1" class="py-4 px-4 text-right text-emerald-400">D1 (Now) RS</th>
+                                        <th id="req1-date1" class="py-4 px-4 text-right text-emerald-400">D1 RS</th>
                                     </tr>
                                 </thead>
-                                <tbody id="tbody-req1" class="text-sm">
-                                    <!-- Injected by JS -->
-                                </tbody>
+                                <tbody id="tbody-req1" class="text-sm"></tbody>
                             </table>
                         </div>
                     </div>
                 </div>
 
-                <!-- Panel Req 2 -->
                 <div id="panel-req2" class="tab-panel hidden flex flex-col h-full animate-fade-in">
                     <div class="mb-6 flex justify-between items-end">
                         <div>
                             <h2 class="text-2xl font-bold text-white mb-2 flex items-center gap-2">
-                                <i data-lucide="zap" class="text-yellow-500"></i> Top 10 Cổ Phiếu Tiềm Năng
+                                <i data-lucide="zap" class="text-yellow-500"></i> Top 10 Co Phieu Tiem Nang
                             </h2>
-                            <p class="text-slate-400 text-sm">Cổ phiếu tiềm năng dựa trên RS [75-90], ROC [10%-20%] > VNINDEX, Close > MA20 > MA50, MA50 hướng lên, Breakout Volume & có Tín hiệu MUA</p>
+                            <p class="text-slate-400 text-sm">Co phieu tiem nang dua tren RS [75-90], ROC [10%-20%] &gt; VNINDEX, Close &gt; MA20 &gt; MA50, MA50 huong len va breakout volume.</p>
                         </div>
                     </div>
 
@@ -127,7 +121,7 @@
                                 <thead class="bg-slate-800/80 backdrop-blur sticky top-0 z-10 text-xs font-mono tracking-wider text-slate-400 uppercase">
                                     <tr>
                                         <th class="py-4 px-4 text-center w-16">#</th>
-                                        <th class="py-4 px-4 w-28">Mã CP</th>
+                                        <th class="py-4 px-4 w-28">Ma CP</th>
                                         <th class="py-4 px-4 text-right">Close</th>
                                         <th class="py-4 px-4 text-right">Volume</th>
                                         <th class="py-4 px-4 text-right">ROC 26%</th>
@@ -136,70 +130,54 @@
                                         <th class="py-4 px-4 text-right">MA50-TB5D</th>
                                         <th class="py-4 px-4 text-right">RS TB 3D</th>
                                         <th class="py-4 px-4 text-right text-yellow-400">S-Score</th>
-                                        <th class="py-4 px-4 text-center w-32">Trạng thái</th>
+                                        <th class="py-4 px-4 text-center w-32">Trang Thai</th>
                                     </tr>
                                 </thead>
-                                <tbody id="tbody-req2" class="text-sm">
-                                    <!-- Injected by JS -->
-                                </tbody>
+                                <tbody id="tbody-req2" class="text-sm"></tbody>
                             </table>
                         </div>
                     </div>
                 </div>
-
-                <!-- Panel Req 3 -->
-                <div id="panel-req3" class="tab-panel hidden flex flex-col h-full animate-fade-in">
-                    <div class="mb-6 flex justify-between items-end">
-                        <div>
-                            <h2 class="text-2xl font-bold text-white mb-2 flex items-center gap-2">
-                                <i data-lucide="pie-chart" class="text-blue-500"></i> Bảng Sức Mạnh Nhóm Ngành
-                            </h2>
-                            <p class="text-slate-400 text-sm">Xếp hạng sức mạnh ngành dựa trên dữ liệu Google Sheet 3</p>
-                        </div>
-                    </div>
-
-                    <div class="glass-panel flex-1 rounded-xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col max-w-4xl mx-auto w-full">
-                        <div class="overflow-auto custom-scrollbar flex-1">
-                            <table class="w-full text-left border-collapse">
-                                <thead class="bg-slate-800/80 backdrop-blur sticky top-0 z-10 text-xs font-mono tracking-wider text-slate-400 uppercase">
-                                    <tr>
-                                        <th class="py-4 px-4 text-center w-16">#</th>
-                                        <th id="req3-colX" class="py-4 px-4 w-1/3">Ngành</th>
-                                        <th id="req3-colY" class="py-4 px-4 text-right">TB(%)</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="tbody-req3" class="text-sm">
-                                    <!-- Injected by JS -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
             </div>
         </main>
     </div>
 
-    <!-- Configuration Modal -->
     <div id="config-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" id="modal-backdrop"></div>
         <div class="relative bg-slate-900 border border-slate-700 rounded-xl shadow-2xl shadow-black max-w-2xl w-full p-6 animate-scale-up">
-            <h3 class="text-xl font-bold text-white mb-1">Cấu hình Dữ liệu</h3>
-            <p class="text-sm text-slate-400 mb-6">Cập nhật link Google Sheet chính chứa dữ liệu nguồn. Quyền truy cập sheet cần được cấp "Anyone with the link can view".</p>
-            
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-xs font-mono text-emerald-400 mb-1">LINK GOOGLE SHEET CHÍNH</label>
-                    <input type="text" id="link-sheet" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-200 text-sm focus:outline-none focus:border-emerald-500 transition-colors" placeholder="https://docs.google.com/spreadsheets/d/.../edit">
+            <h3 class="text-xl font-bold text-white mb-1">Thong Tin Du Lieu</h3>
+            <p class="text-sm text-slate-400 mb-6">Phase nay khong con doc Google Sheet truc tiep. Frontend goi API noi bo, API doc view latest snapshot tren Supabase bang khoa server-side.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="rounded-lg border border-slate-800 bg-slate-950/60 p-4">
+                    <div class="text-xs font-mono text-emerald-400 mb-2">NGUON</div>
+                    <div id="data-source-name" class="text-sm text-white">supabase</div>
+                </div>
+                <div class="rounded-lg border border-slate-800 bg-slate-950/60 p-4">
+                    <div class="text-xs font-mono text-emerald-400 mb-2">NGAY DU LIEU</div>
+                    <div id="data-sync-date" class="text-sm text-white">N/A</div>
+                </div>
+                <div class="rounded-lg border border-slate-800 bg-slate-950/60 p-4">
+                    <div class="text-xs font-mono text-emerald-400 mb-2">UNIVERSE HOP LE</div>
+                    <div id="data-universe" class="text-sm text-white">0 / 0</div>
+                </div>
+                <div class="rounded-lg border border-slate-800 bg-slate-950/60 p-4">
+                    <div class="text-xs font-mono text-emerald-400 mb-2">BENCHMARK</div>
+                    <div id="data-benchmark" class="text-sm text-white">VNINDEX</div>
+                </div>
+                <div class="rounded-lg border border-slate-800 bg-slate-950/60 p-4 md:col-span-2">
+                    <div class="text-xs font-mono text-emerald-400 mb-2">VIEW / SNAPSHOT</div>
+                    <div id="data-view" class="text-sm text-white">stock_latest_snapshot</div>
                 </div>
             </div>
 
+            <div class="mt-6 rounded-lg border border-slate-800 bg-slate-950/50 p-4 text-sm text-slate-300 leading-6">
+                Du lieu ket qua duoc tao tu dong moi 60 giay. Cac ma qua cu co the bi loai khoi ket qua de tranh so sanh sai snapshot.
+            </div>
+
             <div class="flex justify-end gap-3 mt-8">
-                <button id="btn-close-modal" class="px-5 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors border border-transparent">
-                    Hủy
-                </button>
-                <button id="btn-save-config" class="px-5 py-2.5 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-lg shadow-emerald-600/20 flex items-center gap-2">
-                    <i data-lucide="save" class="w-4 h-4"></i> Lưu Cấu Hình
+                <button id="btn-close-modal" class="px-5 py-2.5 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-lg shadow-emerald-600/20 flex items-center gap-2">
+                    <i data-lucide="check" class="w-4 h-4"></i> Dong
                 </button>
             </div>
         </div>

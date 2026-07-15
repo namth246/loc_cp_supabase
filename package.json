@@ -1,0 +1,15 @@
+{
+  "name": "loc_cp_cnf",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "test:logic": "node --test tests/screener.logic.test.js",
+    "test:api": "node --test tests/api.market-dashboard.test.js",
+    "check:frontend": "node --check app.js",
+    "smoke": "node scripts/sample-market-dashboard.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.0"
+  }
+}
