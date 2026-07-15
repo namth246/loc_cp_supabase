@@ -5,6 +5,9 @@ const DEFAULT_SNAPSHOT_VIEW = "stock_latest_snapshot";
 const DEFAULT_BENCHMARK_SYMBOL = "VNINDEX";
 const DEFAULT_RECENT_DATE_COUNT = 10;
 const DEFAULT_FRESHNESS_WINDOW = 5;
+const DEFAULT_QUERY_TIMEOUT_MS = 2500;
+const DEFAULT_SNAPSHOT_VIEW_TIMEOUT_MS = 1200;
+const DEFAULT_QUERY_RETRY_COUNT = 1;
 
 function toPositiveInteger(rawValue, fallbackValue) {
   const parsed = Number.parseInt(String(rawValue ?? ""), 10);
@@ -43,7 +46,14 @@ export function getServerConfig(env = process.env) {
     freshnessWindowSessions: toPositiveInteger(
       env.SUPABASE_FRESHNESS_WINDOW,
       DEFAULT_FRESHNESS_WINDOW
-    )
+    ),
+    queryTimeoutMs: toPositiveInteger(env.SUPABASE_QUERY_TIMEOUT_MS, DEFAULT_QUERY_TIMEOUT_MS),
+    snapshotViewTimeoutMs: toPositiveInteger(
+      env.SUPABASE_SNAPSHOT_VIEW_TIMEOUT_MS,
+      DEFAULT_SNAPSHOT_VIEW_TIMEOUT_MS
+    ),
+    queryRetryCount: toPositiveInteger(env.SUPABASE_QUERY_RETRY_COUNT, DEFAULT_QUERY_RETRY_COUNT),
+    debugLogging: String(env.DEBUG_MARKET_DASHBOARD || "").trim() === "1"
   };
 }
 

@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient, getServerConfig } from "./supabaseAdmin.js";
+import { performance } from "node:perf_hooks";
 
 const SNAPSHOT_COLUMNS = [
   "date",
@@ -18,9 +19,19 @@ const DATE_SCAN_MULTIPLIER = 2000;
 const MIN_DATE_SCAN_ROWS = 5000;
 const MAX_DATE_SCAN_ROWS = 20000;
 const SUPABASE_PAGE_SIZE = 1000;
+const MIN_REQUIRED_HISTORY_DATES = 3;
 
 function ensureArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function debugLog(config, message, details) {
+  if (!config?.debugLogging) {
+    return;
+  }
+
+  const suffix = details ? ` ${JSON.stringify(details)}` : "";
+  console.log(`[market-dashboard] ${message}${suffix}`);
 }
 
 function uniqueDatesDescending(rows, limit) {
@@ -51,7 +62,106 @@ function isMissingSnapshotViewError(error) {
 
 function isSnapshotViewTimeoutError(error) {
   const message = String(error?.message || "");
-  return message.includes("statement timeout");
+  return (
+    message.includes("statement timeout") ||
+    message.includes("Request timed out") ||
+    error?.name === "AbortError"
+  );
+}
+
+function isRetryableQueryError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    error?.name === "AbortError" ||
+    message.includes("timeout") ||
+    message.includes("timed out") ||
+    message.includes("fetch failed") ||
+    message.includes("network")
+  );
+}
+
+function createTimeoutError(label, timeoutMs) {
+  const error = new Error(`${label} timed out after ${timeoutMs}ms.`);
+  error.name = "AbortError";
+  return error;
+}
+
+function attachAbortSignal(query, signal) {
+  if (signal && query && typeof query.abortSignal === "function") {
+    return query.abortSignal(signal);
+  }
+
+  return query;
+}
+
+async function withTimeout(promise, timeoutMs, label, onTimeout) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return promise;
+  }
+
+  let timer;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          onTimeout?.();
+          reject(createTimeoutError(label, timeoutMs));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function executeQuery(buildRequest, options = {}) {
+  const label = options.label || "Supabase query";
+  const timeoutMs = options.timeoutMs;
+  const retryCount = Math.max(0, options.retryCount ?? 0);
+  const config = options.config;
+  let attempt = 0;
+
+  while (attempt <= retryCount) {
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const startedAt = performance.now();
+
+    try {
+      const result = await withTimeout(
+        Promise.resolve(buildRequest(controller?.signal)),
+        timeoutMs,
+        label,
+        () => controller?.abort()
+      );
+
+      if (result?.error) {
+        throw result.error;
+      }
+
+      debugLog(config, `${label} completed`, {
+        attempt: attempt + 1,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        rowCount: ensureArray(result?.data).length
+      });
+
+      return result;
+    } catch (error) {
+      debugLog(config, `${label} failed`, {
+        attempt: attempt + 1,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        message: error.message
+      });
+
+      if (attempt >= retryCount || !isRetryableQueryError(error)) {
+        throw error;
+      }
+    }
+
+    attempt += 1;
+  }
+
+  throw new Error(`${label} exhausted retries.`);
 }
 
 function buildFallbackSnapshotRows(rows) {
@@ -77,11 +187,15 @@ async function fetchPagedRows(buildQuery, options = {}) {
 
   for (let start = 0; start < maxRows; start += SUPABASE_PAGE_SIZE) {
     const end = Math.min(start + SUPABASE_PAGE_SIZE - 1, maxRows - 1);
-    const { data, error } = await buildQuery().range(start, end);
-
-    if (error) {
-      throw error;
-    }
+    const { data } = await executeQuery(
+      (signal) => attachAbortSignal(buildQuery(), signal).range(start, end),
+      {
+        timeoutMs: options.timeoutMs,
+        retryCount: options.retryCount,
+        label: `${options.label || "Supabase paged query"} [${start}-${end}]`,
+        config: options.config
+      }
+    );
 
     const batch = ensureArray(data);
     rows.push(...batch);
@@ -98,7 +212,7 @@ async function fetchPagedRows(buildQuery, options = {}) {
   return rows;
 }
 
-async function fetchLatestSnapshotFallback(client, tableName, desiredCount) {
+async function fetchLatestSnapshotFallback(client, tableName, desiredCount, options = {}) {
   const rowLimit = Math.min(
     MAX_DATE_SCAN_ROWS,
     Math.max(MIN_DATE_SCAN_ROWS, desiredCount * DATE_SCAN_MULTIPLIER)
@@ -112,7 +226,13 @@ async function fetchLatestSnapshotFallback(client, tableName, desiredCount) {
           .select(SNAPSHOT_COLUMNS)
           .order("date", { ascending: false })
           .order("symbol", { ascending: true }),
-      { maxRows: rowLimit }
+      {
+        maxRows: rowLimit,
+        timeoutMs: options.timeoutMs,
+        retryCount: options.retryCount,
+        label: "Supabase fallback snapshot query",
+        config: options.config
+      }
     );
 
     return buildFallbackSnapshotRows(rows);
@@ -121,20 +241,25 @@ async function fetchLatestSnapshotFallback(client, tableName, desiredCount) {
   }
 }
 
-export async function fetchLatestSnapshot(client, snapshotView) {
-  const { data, error } = await client
-    .from(snapshotView)
-    .select(SNAPSHOT_COLUMNS)
-    .order("symbol", { ascending: true });
-
-  if (error) {
-    throw new Error(`Supabase latest snapshot query failed: ${error.message}`);
-  }
+export async function fetchLatestSnapshot(client, snapshotView, options = {}) {
+  const { data } = await executeQuery(
+    (signal) =>
+      attachAbortSignal(
+        client.from(snapshotView).select(SNAPSHOT_COLUMNS).order("symbol", { ascending: true }),
+        signal
+      ),
+    {
+      timeoutMs: options.timeoutMs,
+      retryCount: options.retryCount,
+      label: "Supabase latest snapshot query",
+      config: options.config
+    }
+  );
 
   return ensureArray(data);
 }
 
-export async function fetchRecentDates(client, tableName, desiredCount) {
+export async function fetchRecentDates(client, tableName, desiredCount, options = {}) {
   const rowLimit = Math.min(
     MAX_DATE_SCAN_ROWS,
     Math.max(MIN_DATE_SCAN_ROWS, desiredCount * DATE_SCAN_MULTIPLIER)
@@ -149,7 +274,11 @@ export async function fetchRecentDates(client, tableName, desiredCount) {
           .order("date", { ascending: false }),
       {
         maxRows: rowLimit,
-        shouldStop: (allRows) => uniqueDatesDescending(allRows, desiredCount).length >= desiredCount
+        shouldStop: (allRows) => uniqueDatesDescending(allRows, desiredCount).length >= desiredCount,
+        timeoutMs: options.timeoutMs,
+        retryCount: options.retryCount,
+        label: "Supabase recent date query",
+        config: options.config
       }
     );
 
@@ -159,7 +288,7 @@ export async function fetchRecentDates(client, tableName, desiredCount) {
   }
 }
 
-export async function fetchHistoryRowsByDates(client, tableName, dates) {
+export async function fetchHistoryRowsByDates(client, tableName, dates, options = {}) {
   if (!dates.length) {
     return [];
   }
@@ -178,39 +307,90 @@ export async function fetchHistoryRowsByDates(client, tableName, dates) {
           .in("date", dates)
           .order("date", { ascending: false })
           .order("symbol", { ascending: true }),
-      { maxRows: rowLimit }
+      {
+        maxRows: rowLimit,
+        timeoutMs: options.timeoutMs,
+        retryCount: options.retryCount,
+        label: "Supabase history query",
+        config: options.config
+      }
     );
   } catch (error) {
     throw new Error(`Supabase history query failed: ${error.message}`);
   }
 }
 
-export async function fetchMarketSnapshot(options = {}) {
-  const config = getServerConfig(options.env);
-  const client = options.client || createSupabaseAdminClient(options.env);
-  const desiredCount = options.recentDateCount || config.recentDateCount;
-  const recentDates = await fetchRecentDates(client, config.tableName, desiredCount);
-  let latestRows;
-  let snapshotView = config.snapshotView;
-
+async function fetchLatestSnapshotWithFallback(client, config, desiredCount) {
   try {
-    latestRows = await fetchLatestSnapshot(client, config.snapshotView);
+    const latestRows = await fetchLatestSnapshot(client, config.snapshotView, {
+      timeoutMs: config.snapshotViewTimeoutMs,
+      retryCount: 0,
+      config
+    });
+
+    return {
+      latestRows,
+      snapshotView: config.snapshotView
+    };
   } catch (error) {
     if (!isMissingSnapshotViewError(error) && !isSnapshotViewTimeoutError(error)) {
       throw error;
     }
 
-    latestRows = await fetchLatestSnapshotFallback(client, config.tableName, desiredCount);
-    snapshotView = `${config.tableName}:fallback`;
+    debugLog(config, "Snapshot view fallback activated", {
+      snapshotView: config.snapshotView,
+      reason: error.message
+    });
+
+    return {
+      latestRows: await fetchLatestSnapshotFallback(client, config.tableName, desiredCount, {
+        timeoutMs: config.queryTimeoutMs,
+        retryCount: config.queryRetryCount,
+        config
+      }),
+      snapshotView: `${config.tableName}:fallback`
+    };
   }
-  const historyRows = await fetchHistoryRowsByDates(client, config.tableName, recentDates);
+}
+
+export async function fetchMarketSnapshot(options = {}) {
+  const config = getServerConfig(options.env);
+  const client = options.client || createSupabaseAdminClient(options.env);
+  const desiredCount = Math.max(
+    options.recentDateCount || config.recentDateCount,
+    config.freshnessWindowSessions,
+    MIN_REQUIRED_HISTORY_DATES
+  );
+  const startedAt = performance.now();
+
+  const [recentDates, latestSnapshotResult] = await Promise.all([
+    fetchRecentDates(client, config.tableName, desiredCount, {
+      timeoutMs: config.queryTimeoutMs,
+      retryCount: config.queryRetryCount,
+      config
+    }),
+    fetchLatestSnapshotWithFallback(client, config, desiredCount)
+  ]);
+  const historyRows = await fetchHistoryRowsByDates(client, config.tableName, recentDates, {
+    timeoutMs: config.queryTimeoutMs,
+    retryCount: config.queryRetryCount,
+    config
+  });
+
+  debugLog(config, "fetchMarketSnapshot completed", {
+    elapsedMs: Math.round(performance.now() - startedAt),
+    latestRows: latestSnapshotResult.latestRows.length,
+    historyRows: historyRows.length,
+    recentDates: recentDates.length,
+    snapshotView: latestSnapshotResult.snapshotView
+  });
 
   return {
-    latestRows,
+    latestRows: latestSnapshotResult.latestRows,
     recentDates,
     historyRows,
     benchmarkSymbol: config.benchmarkSymbol,
-    snapshotView,
+    snapshotView: latestSnapshotResult.snapshotView,
     tableName: config.tableName,
     freshnessWindowSessions: config.freshnessWindowSessions
   };

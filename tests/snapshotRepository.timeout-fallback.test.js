@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 
 import { fetchMarketSnapshot } from "../src/server/snapshotRepository.js";
 
@@ -287,4 +288,142 @@ test("fetchMarketSnapshot paginates fallback table queries beyond Supabase's def
   assert.equal(snapshot.latestRows.at(-1).symbol, "ZZZ_LAST");
   assert.equal(snapshot.historyRows.length, 1001);
   assert.equal(snapshot.historyRows.at(-1).symbol, "HIS_LAST");
+});
+
+function createDelayedClient(delayMs) {
+  return {
+    from(name) {
+      if (name === "stock_latest_snapshot") {
+        return createQueryBuilder(
+          () =>
+            new Promise((resolve) =>
+              setTimeout(
+                () =>
+                  resolve({
+                    data: null,
+                    error: { message: "statement timeout" }
+                  }),
+                delayMs
+              )
+            )
+        );
+      }
+
+      if (name !== "stock_indicators") {
+        throw new Error(`Unexpected table: ${name}`);
+      }
+
+      return createQueryBuilder(
+        (state) =>
+          new Promise((resolve) =>
+            setTimeout(() => {
+              if (state.columns === "date") {
+                resolve({
+                  data: [
+                    { date: "2026-07-15" },
+                    { date: "2026-07-14" },
+                    { date: "2026-07-13" }
+                  ],
+                  error: null
+                });
+                return;
+              }
+
+              if (state.inFilter) {
+                resolve({
+                  data: [
+                    {
+                      date: "2026-07-15",
+                      symbol: "AAA",
+                      close: 10,
+                      volume: 500000,
+                      high_tb4d: 9,
+                      vol_tb10d: 200000,
+                      roc26: 11,
+                      ma20: 8,
+                      ma50: 7,
+                      ma50_tb5d: 1,
+                      roc_ts: 5
+                    },
+                    {
+                      date: "2026-07-15",
+                      symbol: "VNINDEX",
+                      close: 1200,
+                      volume: 0,
+                      high_tb4d: 0,
+                      vol_tb10d: 0,
+                      roc26: 10,
+                      ma20: 0,
+                      ma50: 0,
+                      ma50_tb5d: 0,
+                      roc_ts: 1
+                    }
+                  ],
+                  error: null
+                });
+                return;
+              }
+
+              resolve({
+                data: [
+                  {
+                    date: "2026-07-15",
+                    symbol: "AAA",
+                    close: 10,
+                    volume: 500000,
+                    high_tb4d: 9,
+                    vol_tb10d: 200000,
+                    roc26: 11,
+                    ma20: 8,
+                    ma50: 7,
+                    ma50_tb5d: 1,
+                    roc_ts: 5
+                  },
+                  {
+                    date: "2026-07-15",
+                    symbol: "VNINDEX",
+                    close: 1200,
+                    volume: 0,
+                    high_tb4d: 0,
+                    vol_tb10d: 0,
+                    roc26: 10,
+                    ma20: 0,
+                    ma50: 0,
+                    ma50_tb5d: 0,
+                    roc_ts: 1
+                  }
+                ],
+                error: null
+              });
+            }, delayMs)
+          )
+      );
+    }
+  };
+}
+
+test("fetchMarketSnapshot finishes within the Vercel budget by timing out the snapshot view early", async () => {
+  const start = performance.now();
+
+  const snapshot = await fetchMarketSnapshot({
+    client: createDelayedClient(400),
+    env: {
+      SUPABASE_URL: "https://example.supabase.co/rest/v1",
+      SUPABASE_KEY: "test-service-role",
+      SUPABASE_STOCK_TABLE: "stock_indicators",
+      SUPABASE_STOCK_SNAPSHOT_VIEW: "stock_latest_snapshot",
+      SUPABASE_BENCHMARK_SYMBOL: "VNINDEX",
+      SUPABASE_RECENT_DATE_COUNT: "3",
+      SUPABASE_FRESHNESS_WINDOW: "2",
+      SUPABASE_SNAPSHOT_VIEW_TIMEOUT_MS: "100"
+    }
+  });
+
+  const elapsedMs = performance.now() - start;
+
+  assert.equal(snapshot.snapshotView, "stock_indicators:fallback");
+  assert.ok(
+    elapsedMs < 1400,
+    `expected fetchMarketSnapshot to stay under 1400ms, received ${elapsedMs.toFixed(1)}ms`
+  );
 });
