@@ -1,5 +1,4 @@
-import { fetchMarketSnapshot } from "../src/server/snapshotRepository.js";
-import { getServerConfig } from "../src/server/supabaseAdmin.js";
+import { createSupabaseAdminClient, getServerConfig } from "../src/server/supabaseAdmin.js";
 
 function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode;
@@ -7,7 +6,7 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
-export default async function handler(req, res) {
+export default async function handler(req, res, options = {}) {
   if (req.method && req.method !== "GET") {
     sendJson(res, 405, {
       error: {
@@ -19,13 +18,22 @@ export default async function handler(req, res) {
   }
 
   try {
-    const config = getServerConfig();
-    const snapshot = await fetchMarketSnapshot();
+    const config = getServerConfig(options.env);
+    const client = options.client || createSupabaseAdminClient(options.env);
+    const { data, error } = await client
+      .from(config.tableName)
+      .select("date")
+      .order("date", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      throw error;
+    }
+
     sendJson(res, 200, {
       status: "ok",
       source: "supabase",
-      dataDate: snapshot.recentDates?.[0] || null,
-      universeSize: snapshot.latestRows?.length || 0,
+      dataDate: data?.[0]?.date || null,
       benchmarkSymbol: config.benchmarkSymbol,
       snapshotView: config.snapshotView
     });
@@ -40,3 +48,4 @@ export default async function handler(req, res) {
     });
   }
 }
+
