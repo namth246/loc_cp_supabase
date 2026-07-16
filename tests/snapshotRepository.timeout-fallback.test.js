@@ -427,3 +427,236 @@ test("fetchMarketSnapshot finishes within the Vercel budget by timing out the sn
     `expected fetchMarketSnapshot to stay under 1400ms, received ${elapsedMs.toFixed(1)}ms`
   );
 });
+
+function createFallbackReuseClient() {
+  const fallbackRows = [
+    ...buildRows(0, 2, "2026-07-15", "LATE"),
+    ...buildRows(0, 2, "2026-07-14", "MID"),
+    ...buildRows(0, 2, "2026-07-13", "EARLY"),
+    {
+      date: "2026-07-12",
+      symbol: "STALE_ONLY",
+      close: 7,
+      volume: 200000,
+      high_tb4d: 6.5,
+      vol_tb10d: 180000,
+      roc26: 4,
+      ma20: 6,
+      ma50: 5,
+      ma50_tb5d: 1,
+      roc_ts: 2
+    }
+  ];
+
+  return {
+    from(name) {
+      if (name === "stock_latest_snapshot") {
+        return createQueryBuilder(() => ({
+          data: null,
+          error: { message: "canceling statement due to statement timeout" }
+        }));
+      }
+
+      if (name !== "stock_indicators") {
+        throw new Error(`Unexpected table: ${name}`);
+      }
+
+      return createQueryBuilder((state) => {
+        if (state.columns === "date" || state.inFilter) {
+          throw new Error("fallback data should be reused without extra stock_indicators queries");
+        }
+
+        return {
+          data: fallbackRows,
+          error: null
+        };
+      });
+    }
+  };
+}
+
+test("fetchMarketSnapshot reuses fallback rows instead of querying recent dates and history again", async () => {
+  const snapshot = await fetchMarketSnapshot({
+    client: createFallbackReuseClient(),
+    env: {
+      SUPABASE_URL: "https://example.supabase.co/rest/v1",
+      SUPABASE_KEY: "test-service-role",
+      SUPABASE_STOCK_TABLE: "stock_indicators",
+      SUPABASE_STOCK_SNAPSHOT_VIEW: "stock_latest_snapshot",
+      SUPABASE_BENCHMARK_SYMBOL: "VNINDEX",
+      SUPABASE_RECENT_DATE_COUNT: "3",
+      SUPABASE_FRESHNESS_WINDOW: "3"
+    }
+  });
+
+  assert.equal(snapshot.snapshotView, "stock_indicators:fallback");
+  assert.deepEqual(snapshot.recentDates, ["2026-07-15", "2026-07-14", "2026-07-13"]);
+  assert.equal(snapshot.latestRows.length, 7);
+  assert.equal(snapshot.historyRows.length, 6);
+  assert.equal(snapshot.latestRows.at(-1).symbol, "STALE_ONLY");
+});
+
+function buildWindowRows(date) {
+  return buildRows(0, 1000, date, "WINDOW");
+}
+
+function createOverfetchFallbackClient() {
+  const fallbackPages = [
+    buildWindowRows("2026-07-15"),
+    buildWindowRows("2026-07-14"),
+    buildWindowRows("2026-07-13"),
+    buildWindowRows("2026-07-12"),
+    buildWindowRows("2026-07-11"),
+    buildWindowRows("2026-07-10"),
+    buildWindowRows("2026-07-09"),
+    buildWindowRows("2026-07-08"),
+    buildWindowRows("2026-07-07"),
+    buildWindowRows("2026-07-06")
+  ];
+
+  return {
+    from(name) {
+      if (name === "stock_latest_snapshot") {
+        return createQueryBuilder(() => ({
+          data: null,
+          error: { message: "canceling statement due to statement timeout" }
+        }));
+      }
+
+      if (name !== "stock_indicators") {
+        throw new Error(`Unexpected table: ${name}`);
+      }
+
+      return createQueryBuilder((state) => {
+        const start = state.rangeStart ?? 0;
+
+        if (state.columns === "date" || state.inFilter) {
+          throw new Error("fallback window should already satisfy date/history needs");
+        }
+
+        if (state.columns !== "date,symbol" && start >= 10000) {
+          throw new Error("fallback scan exceeded freshness window budget");
+        }
+
+        const pageIndex = Math.floor(start / 1000);
+        return {
+          data: fallbackPages[pageIndex] || [],
+          error: null
+        };
+      });
+    }
+  };
+}
+
+test("fetchMarketSnapshot does not overfetch fallback pages beyond the freshness window budget", async () => {
+  const snapshot = await fetchMarketSnapshot({
+    client: createOverfetchFallbackClient(),
+    env: {
+      SUPABASE_URL: "https://example.supabase.co/rest/v1",
+      SUPABASE_KEY: "test-service-role",
+      SUPABASE_STOCK_TABLE: "stock_indicators",
+      SUPABASE_STOCK_SNAPSHOT_VIEW: "stock_latest_snapshot",
+      SUPABASE_BENCHMARK_SYMBOL: "VNINDEX",
+      SUPABASE_RECENT_DATE_COUNT: "10",
+      SUPABASE_FRESHNESS_WINDOW: "5"
+    }
+  });
+
+  assert.equal(snapshot.snapshotView, "stock_indicators:fallback");
+  assert.deepEqual(snapshot.recentDates, [
+    "2026-07-15",
+    "2026-07-14",
+    "2026-07-13",
+    "2026-07-12",
+    "2026-07-11"
+  ]);
+  assert.equal(snapshot.latestRows.length, 1000);
+  assert.equal(snapshot.historyRows.length, 5000);
+});
+
+function createStaleCoverageFallbackClient() {
+  const fullHistoryPages = [
+    buildWindowRows("2026-07-15"),
+    buildWindowRows("2026-07-14"),
+    buildWindowRows("2026-07-13"),
+    buildWindowRows("2026-07-12"),
+    buildWindowRows("2026-07-11")
+  ];
+
+  return {
+    from(name) {
+      if (name === "stock_latest_snapshot") {
+        return createQueryBuilder(() => ({
+          data: null,
+          error: { message: "canceling statement due to statement timeout" }
+        }));
+      }
+
+      if (name !== "stock_indicators") {
+        throw new Error(`Unexpected table: ${name}`);
+      }
+
+      return createQueryBuilder((state) => {
+        const start = state.rangeStart ?? 0;
+        const pageIndex = Math.floor(start / 1000);
+
+        if (state.columns === "date") {
+          throw new Error("recent date query should be satisfied from fallback rows");
+        }
+
+        if (state.inFilter) {
+          throw new Error("history query should be satisfied from fallback rows");
+        }
+
+        if (state.columns === "date,symbol") {
+          if (pageIndex < fullHistoryPages.length) {
+            return {
+              data: fullHistoryPages[pageIndex].map((row) => ({
+                date: row.date,
+                symbol: row.symbol
+              })),
+              error: null
+            };
+          }
+
+          if (pageIndex === fullHistoryPages.length) {
+            return {
+              data: [{ date: "2026-07-10", symbol: "STALE_OLD" }],
+              error: null
+            };
+          }
+
+          return { data: [], error: null };
+        }
+
+        if (pageIndex < fullHistoryPages.length) {
+          return {
+            data: fullHistoryPages[pageIndex],
+            error: null
+          };
+        }
+
+        return { data: [], error: null };
+      });
+    }
+  };
+}
+
+test("fetchMarketSnapshot preserves stale latest symbols beyond the freshness window", async () => {
+  const snapshot = await fetchMarketSnapshot({
+    client: createStaleCoverageFallbackClient(),
+    env: {
+      SUPABASE_URL: "https://example.supabase.co/rest/v1",
+      SUPABASE_KEY: "test-service-role",
+      SUPABASE_STOCK_TABLE: "stock_indicators",
+      SUPABASE_STOCK_SNAPSHOT_VIEW: "stock_latest_snapshot",
+      SUPABASE_BENCHMARK_SYMBOL: "VNINDEX",
+      SUPABASE_RECENT_DATE_COUNT: "10",
+      SUPABASE_FRESHNESS_WINDOW: "5"
+    }
+  });
+
+  assert.equal(snapshot.snapshotView, "stock_indicators:fallback");
+  assert.equal(snapshot.historyRows.length, 5000);
+  assert.ok(snapshot.latestRows.some((row) => row.symbol === "STALE_OLD" && row.date === "2026-07-10"));
+});

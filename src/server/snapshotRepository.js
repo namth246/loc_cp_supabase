@@ -14,6 +14,7 @@ const SNAPSHOT_COLUMNS = [
   "ma50_tb5d",
   "roc_ts"
 ].join(",");
+const SNAPSHOT_REF_COLUMNS = ["date", "symbol"].join(",");
 
 const DATE_SCAN_MULTIPLIER = 2000;
 const MIN_DATE_SCAN_ROWS = 5000;
@@ -180,10 +181,37 @@ function buildFallbackSnapshotRows(rows) {
   );
 }
 
+function buildRowKey(row) {
+  return `${row?.symbol || ""}::${row?.date || ""}`;
+}
+
+function filterRowsByDates(rows, dates) {
+  const dateSet = new Set(dates);
+  return rows.filter((row) => row?.date && dateSet.has(row.date));
+}
+
+function buildLatestRowsFromReferences(latestRowReferences, detailedRows) {
+  const detailedRowByKey = new Map();
+
+  for (const row of detailedRows) {
+    const key = buildRowKey(row);
+    if (!row?.symbol || !row?.date || detailedRowByKey.has(key)) {
+      continue;
+    }
+
+    detailedRowByKey.set(key, row);
+  }
+
+  return buildFallbackSnapshotRows(latestRowReferences).map((row) => {
+    return detailedRowByKey.get(buildRowKey(row)) || { date: row.date, symbol: row.symbol };
+  });
+}
+
 async function fetchPagedRows(buildQuery, options = {}) {
   const maxRows = options.maxRows ?? Number.POSITIVE_INFINITY;
   const shouldStop = options.shouldStop ?? (() => false);
   const rows = [];
+  let reachedEnd = false;
 
   for (let start = 0; start < maxRows; start += SUPABASE_PAGE_SIZE) {
     const end = Math.min(start + SUPABASE_PAGE_SIZE - 1, maxRows - 1);
@@ -205,8 +233,13 @@ async function fetchPagedRows(buildQuery, options = {}) {
     }
 
     if (!batch.length || batch.length < end - start + 1) {
+      reachedEnd = true;
       break;
     }
+  }
+
+  if (options.returnMeta) {
+    return { rows, reachedEnd };
   }
 
   return rows;
@@ -219,7 +252,7 @@ async function fetchLatestSnapshotFallback(client, tableName, desiredCount, opti
   );
 
   try {
-    const rows = await fetchPagedRows(
+    const { rows, reachedEnd } = await fetchPagedRows(
       () =>
         client
           .from(tableName)
@@ -231,13 +264,42 @@ async function fetchLatestSnapshotFallback(client, tableName, desiredCount, opti
         timeoutMs: options.timeoutMs,
         retryCount: options.retryCount,
         label: "Supabase fallback snapshot query",
-        config: options.config
+        config: options.config,
+        returnMeta: true
       }
     );
 
-    return buildFallbackSnapshotRows(rows);
+    return { rows, reachedEnd };
   } catch (error) {
     throw new Error(`Supabase fallback snapshot query failed: ${error.message}`);
+  }
+}
+
+async function fetchLatestSnapshotFallbackRefs(client, tableName, scanCount, options = {}) {
+  const rowLimit = Math.min(
+    MAX_DATE_SCAN_ROWS,
+    Math.max(MIN_DATE_SCAN_ROWS, scanCount * DATE_SCAN_MULTIPLIER)
+  );
+
+  try {
+    return await fetchPagedRows(
+      () =>
+        client
+          .from(tableName)
+          .select(SNAPSHOT_REF_COLUMNS)
+          .order("date", { ascending: false })
+          .order("symbol", { ascending: true }),
+      {
+        maxRows: rowLimit,
+        timeoutMs: options.timeoutMs,
+        retryCount: options.retryCount,
+        label: "Supabase fallback latest-ref query",
+        config: options.config,
+        returnMeta: true
+      }
+    );
+  } catch (error) {
+    throw new Error(`Supabase fallback latest-ref query failed: ${error.message}`);
   }
 }
 
@@ -342,12 +404,49 @@ async function fetchLatestSnapshotWithFallback(client, config, desiredCount) {
       reason: error.message
     });
 
-    return {
-      latestRows: await fetchLatestSnapshotFallback(client, config.tableName, desiredCount, {
+    const { rows, reachedEnd } = await fetchLatestSnapshotFallback(
+      client,
+      config.tableName,
+      desiredCount,
+      {
         timeoutMs: config.queryTimeoutMs,
         retryCount: config.queryRetryCount,
         config
-      }),
+      }
+    );
+    const recentDates = uniqueDatesDescending(rows, desiredCount);
+    const oldestReusableDate = recentDates.at(-1) || null;
+    const lastRowDate = rows.at(-1)?.date || null;
+    const canReuseFallbackHistory =
+      recentDates.length === desiredCount &&
+      (reachedEnd || (lastRowDate && oldestReusableDate && lastRowDate < oldestReusableDate));
+    const historyRows = canReuseFallbackHistory ? filterRowsByDates(rows, recentDates) : null;
+
+    if (!canReuseFallbackHistory) {
+      return {
+        latestRows: buildFallbackSnapshotRows(rows),
+        recentDates: null,
+        historyRows: null,
+        snapshotView: `${config.tableName}:fallback`
+      };
+    }
+
+    const latestRefRows = await fetchLatestSnapshotFallbackRefs(
+      client,
+      config.tableName,
+      Math.max(config.recentDateCount, desiredCount),
+      {
+        timeoutMs: config.queryTimeoutMs,
+        retryCount: config.queryRetryCount,
+        config
+      }
+    );
+    const latestRows = buildLatestRowsFromReferences(latestRefRows.rows, historyRows || rows);
+
+    return {
+      latestRows,
+      recentDates: canReuseFallbackHistory ? recentDates : null,
+      historyRows,
       snapshotView: `${config.tableName}:fallback`
     };
   }
@@ -356,26 +455,25 @@ async function fetchLatestSnapshotWithFallback(client, config, desiredCount) {
 export async function fetchMarketSnapshot(options = {}) {
   const config = getServerConfig(options.env);
   const client = options.client || createSupabaseAdminClient(options.env);
-  const desiredCount = Math.max(
-    options.recentDateCount || config.recentDateCount,
-    config.freshnessWindowSessions,
-    MIN_REQUIRED_HISTORY_DATES
-  );
+  const requiredDateCount = Math.max(config.freshnessWindowSessions, MIN_REQUIRED_HISTORY_DATES);
+  const desiredCount = Math.max(options.recentDateCount || 0, requiredDateCount);
   const startedAt = performance.now();
 
-  const [recentDates, latestSnapshotResult] = await Promise.all([
-    fetchRecentDates(client, config.tableName, desiredCount, {
+  const latestSnapshotResult = await fetchLatestSnapshotWithFallback(client, config, desiredCount);
+  const recentDates =
+    latestSnapshotResult.recentDates ||
+    (await fetchRecentDates(client, config.tableName, desiredCount, {
       timeoutMs: config.queryTimeoutMs,
       retryCount: config.queryRetryCount,
       config
-    }),
-    fetchLatestSnapshotWithFallback(client, config, desiredCount)
-  ]);
-  const historyRows = await fetchHistoryRowsByDates(client, config.tableName, recentDates, {
-    timeoutMs: config.queryTimeoutMs,
-    retryCount: config.queryRetryCount,
-    config
-  });
+    }));
+  const historyRows =
+    latestSnapshotResult.historyRows ||
+    (await fetchHistoryRowsByDates(client, config.tableName, recentDates, {
+      timeoutMs: config.queryTimeoutMs,
+      retryCount: config.queryRetryCount,
+      config
+    }));
 
   debugLog(config, "fetchMarketSnapshot completed", {
     elapsedMs: Math.round(performance.now() - startedAt),
