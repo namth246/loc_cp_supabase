@@ -10,7 +10,8 @@
     "test:logic": "node --test tests/screener.logic.test.js",
     "test:api": "node --test tests/api.market-dashboard.test.js",
     "check:frontend": "node --check app.js",
-    "smoke": "node scripts/sample-market-dashboard.js"
+    "smoke": "node scripts/sample-market-dashboard.js",
+    "refresh:market-dashboard-cache": "node scripts/refresh-market-dashboard-cache.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0"

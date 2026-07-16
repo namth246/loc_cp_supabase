@@ -2,8 +2,7 @@ import { buildSnapshotWithRs } from "./rsCalculator.js";
 import { buildBenchmarkMap, buildScreeningResult } from "./screenerService.js";
 import { fetchMarketSnapshot } from "./snapshotRepository.js";
 
-export async function buildMarketDashboardPayload(options = {}) {
-  const snapshot = await (options.repository || fetchMarketSnapshot)(options.repositoryOptions);
+export function composeMarketDashboardPayload(snapshot, options = {}) {
   const freshnessWindowSessions =
     options.freshnessWindowSessions || snapshot.freshnessWindowSessions || 5;
   const recentDates = snapshot.recentDates || [];
@@ -36,4 +35,9 @@ export async function buildMarketDashboardPayload(options = {}) {
       tableName: snapshot.tableName || null
     }
   };
+}
+
+export async function buildMarketDashboardPayload(options = {}) {
+  const snapshot = await (options.repository || fetchMarketSnapshot)(options.repositoryOptions);
+  return composeMarketDashboardPayload(snapshot, options);
 }

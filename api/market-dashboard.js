@@ -1,4 +1,4 @@
-import { buildMarketDashboardPayload } from "../src/server/dashboardPayload.js";
+import { loadMarketDashboardPayload } from "../src/server/marketDashboardCacheService.js";
 
 function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode;
@@ -17,16 +17,22 @@ export default async function handler(req, res) {
     return;
   }
 
+  console.time("Total Request");
   try {
-    const payload = await buildMarketDashboardPayload();
+    const payload = await loadMarketDashboardPayload();
+    res.setHeader("Cache-Control", "no-store");
     sendJson(res, 200, payload);
   } catch (error) {
-    sendJson(res, 500, {
+    const isCacheMiss = error?.code === "MARKET_DASHBOARD_CACHE_MISS";
+
+    sendJson(res, isCacheMiss ? 503 : 500, {
       source: "supabase",
       error: {
-        code: "MARKET_DASHBOARD_ERROR",
+        code: isCacheMiss ? "MARKET_DASHBOARD_CACHE_MISS" : "MARKET_DASHBOARD_ERROR",
         message: error instanceof Error ? error.message : "Unknown error"
       }
     });
+  } finally {
+    console.timeEnd("Total Request");
   }
 }
